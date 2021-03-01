@@ -645,6 +645,20 @@ body.disconnected > header > nav:after {
     content: "Reconnecting...";
 }
 
+loading-bar {
+    height: 6px;
+    width: 10vw;
+    background-color: #b1c9dd;
+    position: fixed;
+    top: 0px;
+    left: 0px;
+    display: block;
+    transition: width cubic-bezier(0.14, 0.71, 0, 0.99) 2s, opacity linear 0.2s;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 7;
+}
+
 /* PREAMBLE */
 
 main > preamble {

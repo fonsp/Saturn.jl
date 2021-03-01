@@ -14,6 +14,7 @@ import { UndoDelete } from "./UndoDelete.js"
 import { SlideControls } from "./SlideControls.js"
 import { Scroller } from "./Scroller.js"
 import { ExportBanner } from "./ExportBanner.js"
+import { ProgressBar } from "./ProgressBar.js"
 
 import { slice_utf8, length_utf8 } from "../common/UnicodeTools.js"
 import { has_ctrl_or_cmd_pressed, ctrl_or_cmd_name, is_mac_keyboard, in_textarea_or_input } from "../common/KeyboardShortcuts.js"
@@ -807,6 +808,7 @@ export class Editor extends Component {
             <${PlutoContext.Provider} value=${this.actions}>
                 <${PlutoBondsContext.Provider} value=${this.state.notebook.bonds}>
                     <${Scroller} active=${this.state.scroller} />
+                    <${ProgressBar} notebook=${this.state.notebook}/>
                     <header className=${export_menu_open ? "show_export" : ""}>
                         <${ExportBanner}
                             pluto_version=${this.client?.version_info?.pluto}

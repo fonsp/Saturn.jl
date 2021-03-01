@@ -37,7 +37,7 @@ export const Cell = ({
     // cm_forced_focus is null, except when a line needs to be highlighted because it is part of a stack trace
     const [cm_forced_focus, set_cm_forced_focus] = useState(null)
     const { saving_file, drag_active, handler } = useDropHandler()
-    const localTimeRunning = 10e5 * useMillisSinceTruthy(running)
+    const localTimeRunning = 1e6 * useMillisSinceTruthy(running)
     useEffect(() => {
         const focusListener = (e) => {
             if (e.detail.cell_id === cell_id) {
