@@ -1241,6 +1241,14 @@ function Logging.handle_message(::PlutoLogger, level, msg, _module, group, id, f
     end
 end
 
+
+Base.@kwdef mutable struct WorkspaceInfo
+    notebook_id::Union{String,Nothing} = nothing
+end
+const workspace_info = WorkspaceInfo()
+
+include("./IntegrationsWithOtherPackages.jl")
+
 # we put this in __init__ to fix a world age problem
 function __init__()
     if !isdefined(Main, Symbol("##Pluto_logger_switched")) && Distributed.myid() != 1

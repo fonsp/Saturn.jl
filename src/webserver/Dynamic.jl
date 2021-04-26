@@ -515,6 +515,21 @@ responses[:write_file] = function (🙋::ClientRequest)
     putclientupdates!(🙋.session, 🙋.initiator, msg)
 end
 
+# Third party messages, passing on to handlers inside the PlutoRunner process
+responses[:integrations_message_to_server] = function response_integrations(🙋::ClientRequest)
+    @assert (haskey(🙋.body, "module_name")) "Integrations message needs a `module_name` property"
+    @assert (haskey(🙋.body, "body")) "Integrations message needs a `body` property"
+    
+    # Transform as Dict because Distributed doesn't understand ANYTHING
+    message = Dict(
+        :module_name => 🙋.body["module_name"],
+        :body => 🙋.body["body"],
+    )
+    WorkspaceManager.eval_in_workspace((🙋.session, 🙋.notebook), quote
+        Main.PlutoRunner.IntegrationsWithOtherPackages.handle_websocket_message($(message))
+    end)
+end
+
 # helpers
 
 function template_code(filename, directory, iofilecontents)

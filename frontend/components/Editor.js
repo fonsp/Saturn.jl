@@ -595,11 +595,107 @@ patch: ${JSON.stringify(
                 }
             })
 
+        // If you are a happy notebook maker/developer,
+        // and you see these window.Pluto.onIntegrationMessage and you're like WOW!
+        // Let me write an integration with other code!! Please don't. Sure, try it out as you wish,
+        // but I will 100% change this name and structure, so please come to the Zulip chat and connect with us.
+        if ("Pluto" in window) {
+            // prettier-ignore
+            console.warn("Pluto global already exists on window, will replace it but this surely breaks something")
+        }
+        // Trying out if this works with browsers native EventTarget,
+        // but isn't part of the public-ish api so can change it to something different later
+        class IntegrationsMessageToClientEvent extends Event {
+            /**
+             * @param {{
+             *  module_name: string,
+             *  body: any,
+             * }} props
+             */
+            constructor({ module_name, body }) {
+                super("integrations_message_to_client")
+                this.module_name = module_name
+                this.body = body
+                this.handled = false
+            }
+        }
+        let pluto_api_event_target = new EventTarget()
+        // @ts-ignore
+        window.Pluto = {
+            /**
+             * @param {String} module_name
+             * @param {(message: any) => void} fn
+             */
+            onIntegrationsMessage: (module_name, fn) => {
+                if (typeof module_name === "function") {
+                    throw new Error(`You called Pluto.onIntegrationsMessage without a module name.`)
+                }
+                /** @param {IntegrationsMessageToClientEvent} event */
+                let handle_fn = (event) => {
+                    if (event.module_name == module_name) {
+                        // @ts-ignore
+                        event.handled = true
+                        fn(event.body)
+                    }
+                }
+                pluto_api_event_target.addEventListener("integrations_message_to_client", handle_fn)
+                return () => {
+                    pluto_api_event_target.removeEventListener("integrations_message_to_client", handle_fn)
+                }
+            },
+            /**
+             * @param {String} module_name
+             * @param {any} message
+             */
+            sendIntegrationsMessage: (module_name, message) => {
+                this.client.send(
+                    "integrations_message_to_server",
+                    {
+                        module_name: module_name,
+                        body: message,
+                    },
+                    { notebook_id: this.state.notebook.notebook_id },
+                    false
+                )
+            },
+
+            /** @private */
+            pluto_api_event_target: pluto_api_event_target,
+        }
+
+        // TODO Load this lazily when WebIO is imported in the notebook
+        // @ts-ignore
+        let WebIO = window.webio.default
+        const webIO = new WebIO()
+        // @ts-ignore
+        window.WebIO = webIO
+        webIO.setSendCallback((message) => {
+            // @ts-ignore
+            window.Pluto.sendIntegrationsMessage("WebIO", message)
+        })
+        // @ts-ignore
+        window.Pluto.onIntegrationsMessage("WebIO", (message) => {
+            webIO.dispatch(message)
+        })
+
         // these are update message that are _not_ a response to a `send(*, *, {create_promise: true})`
         const on_update = (update, by_me) => {
             if (this.state.notebook.notebook_id === update.notebook_id) {
                 const message = update.message
                 switch (update.type) {
+                    case "integrations":
+                        let event = new IntegrationsMessageToClientEvent({
+                            module_name: message.module_name,
+                            body: message.message,
+                        })
+                        // @ts-ignore
+                        window.Pluto.pluto_api_event_target.dispatchEvent(event)
+
+                        // @ts-ignore
+                        if (event.handled == false) {
+                            console.warn(`Unknown integrations message "${message.module_name}"`)
+                        }
+                        break
                     case "notebook_diff":
                         if (message?.response?.from_reset) {
                             console.log("Trying to reset state after failure")

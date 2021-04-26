@@ -57,6 +57,14 @@ function make_workspace((session, notebook)::SN; force_offline::Bool=false)::Wor
         pid
     end
 
+    Distributed.remotecall_eval(Main, [pid], quote 
+        Main.PlutoRunner.workspace_info.notebook_id = $(string(notebook.notebook_id))
+    end)
+
+    integrations_channel = Core.eval(Main, quote
+        $(Distributed).RemoteChannel(() -> eval(:(Main.PlutoRunner.IntegrationsWithOtherPackages.message_channel)), $pid)
+    end)
+
     log_channel = Core.eval(Main, quote
         $(Distributed).RemoteChannel(() -> eval(:(Main.PlutoRunner.log_channel)), $pid)
     end)
@@ -64,6 +72,7 @@ function make_workspace((session, notebook)::SN; force_offline::Bool=false)::Wor
     workspace = Workspace(pid, false, log_channel, module_name, Token())
 
     @async start_relaying_logs((session, notebook), log_channel)
+    @async start_relaying_integrations((session, notebook), integrations_channel)
     cd_workspace(workspace, notebook.path)
 
     force_offline || (notebook.process_status = ProcessStatus.ready)
@@ -84,6 +93,21 @@ function start_relaying_logs((session, notebook)::SN, log_channel::Distributed.R
         end
     end
 end
+
+function start_relaying_integrations((session, notebook)::SN, channel::Distributed.RemoteChannel)
+    while true
+        try
+            next_message = take!(channel)
+            putnotebookupdates!(session, notebook, UpdateMessage(:integrations, next_message, notebook))
+        catch e
+            if !isopen(channel)
+                break
+            end
+            @error "Failed to relay integrations message" exception=(e, catch_backtrace())
+        end
+    end
+end
+
 
 "Call `cd(\$path)` inside the workspace. This is done when creating a workspace, and whenever the notebook changes path."
 function cd_workspace(workspace, path::AbstractString)

@@ -149,6 +149,52 @@ function http_router_for(session::ServerSession)
         end
     end
 
+    function handle_integrations_request(request::HTTP.Request)
+        try
+            _1, notebook_id, module_name = HTTP.URIs.splitpath(request.target)
+            rest = HTTP.URIs.splitpath(request.target)[4:end]
+
+            if !haskey(session.notebooks, UUID(notebook_id))
+                @warn "Integrations called with unknown notebook" module_name notebook_id
+                return HTTP.Response(404)
+            end
+
+            notebook = session.notebooks[UUID(notebook_id)]
+            sharable_request = Dict(
+                :module_name => module_name,
+                :method => request.method,
+                :target => request.target,
+                :headers => request.headers,
+                :body => request.body,
+            )
+        
+            response = WorkspaceManager.eval_fetch_in_workspace((session, notebook), quote
+                Main.PlutoRunner.IntegrationsWithOtherPackages.handle_http_request($(sharable_request))
+            end)
+
+            if response isa Dict{Symbol, <:Any}
+                response_with_defaults = merge(Dict(
+                    :status => 200,
+                    :headers => [],
+                    :body => UInt8[],  
+                ), response)
+                HTTP.Response(
+                    response_with_defaults[:status],
+                    response_with_defaults[:headers],
+                    body=response_with_defaults[:body]
+                )
+            else
+                @error "Integration handle error: `handle_http_request` did not return a `Dict{Symbol, Any}`."
+                HTTP.Response(500, "Integration handle error: `handle_http_request` did not return a `Dict{Symbol, Any}`.")
+            end
+        catch e
+            @error "Integration handle error" exception=(e,catch_backtrace())
+            HTTP.Response(500, sprint(showerror, e, stacktrace(catch_backtrace())))
+        end
+    end
+    HTTP.@register(router, "GET", "/integrations/*/*", (request) -> handle_integrations_request(request))
+    HTTP.@register(router, "POST", "/integrations/*/*", (request) -> handle_integrations_request(request))
+
     serve_newfile = with_authentication(;
         required=security.require_secret_for_access || 
         security.require_secret_for_open_links
