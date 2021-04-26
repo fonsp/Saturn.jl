@@ -32,6 +32,7 @@ html {
 }
 
 body {
+    overscroll-behavior: contain;
     margin: 0px;
     overflow-anchor: none;
     position: relative;
@@ -202,6 +203,7 @@ pluto-output.rich_output pre code {
     padding: 0px;
 }
 
+pluto-log-dot pre,
 pluto-output pre {
     display: inline-block;
     margin: 0px;
@@ -1620,6 +1622,145 @@ nav#undo_delete.hidden {
     }
 }
 
+/* LOGS */
+
+@media screen and (max-width: calc(700px + 25px + 6px + 100px)) {
+    pluto-cell.shrunk {
+        /* max-width: calc(100% - 100px); */
+    }
+}
+
+pluto-logs-container {
+    display: block;
+    width: max(100px, 100vw - (700px + 25px));
+    max-height: calc(100% - 2px);
+    position: absolute;
+    z-index: 3;
+    right: min(-100px, -100vw + (700px + 25px));
+    top: 1px;
+    overflow-x: auto;
+    overflow-y: hidden;
+
+    background: hsl(0deg 0% 100% / 81%);
+}
+
+@media screen and (max-width: calc(700px + 25px + 6px + 100px)) {
+    pluto-logs-container {
+        right: min(-6px, 700px + 25px - 100vw);
+        width: 20px;
+        transition: width ease-in-out 100ms;
+
+        /* padding-left: 80px; */
+    }
+
+    pluto-logs-container:focus-within,
+    pluto-logs-container:hover {
+        width: 30vw;
+    }
+
+    pluto-logs-container pluto-logs {
+        grid-template-columns: repeat(auto-fill, 0px);
+    }
+    pluto-logs-container:focus-within pluto-logs,
+    pluto-logs-container:hover pluto-logs {
+        grid-template-columns: repeat(auto-fill, 10px);
+    }
+}
+
+@media screen and (min-width: calc(700px + 25px + 6px + 500px)) and (max-width: calc(700px + 25px + 6px + 500px + 500px)) {
+    pluto-logs-container {
+        right: calc(-500px - 6px);
+        width: calc(500px + 6px);
+    }
+}
+@media screen and (min-width: calc(700px + 25px + 6px + 500px + 500px)) {
+    pluto-logs-container {
+        width: calc(0.5 * (6px + 100vw - (700px + 25px)));
+        right: calc(-0.5 * (6px + 100vw - (700px + 25px)));
+    }
+}
+
+pluto-logs {
+    display: grid;
+    grid-auto-rows: 15px;
+    grid-template-rows: repeat(auto-fill, 15px);
+    grid-template-columns: repeat(auto-fill, 10px);
+    grid-auto-flow: column;
+}
+
+pluto-log-dot-positioner {
+    display: block;
+    width: 10px;
+    transition: transform 100ms ease-in-out;
+}
+
+pluto-log-dot-positioner:hover,
+pluto-log-dot-positioner.inspecting {
+    z-index: 5;
+    /* transform: translate(0px, -5px); */
+}
+pluto-log-dot-sizer {
+    display: block;
+    width: 100px;
+    pointer-events: none; /* part 1: because the hit box is larger than the action log dot */
+}
+pluto-log-dot {
+    pointer-events: auto; /* part 2 */
+    box-shadow: -2px 0px 1px #00000014;
+    font-family: "Roboto Mono", monospace;
+    font-size: 0.6rem;
+
+    /* position: absolute; */
+    display: inline-flex;
+    flex-direction: column;
+    padding: 1px 3px;
+    min-width: 18px;
+    min-height: 18px;
+    border-radius: 7px;
+}
+pluto-log-dot {
+    background: #cbe5ff;
+    border: 3px solid rgb(132, 171, 190);
+}
+pluto-log-dot.Warn {
+    background: #fae5ce;
+    border: 3px solid rgb(235, 183, 138);
+}
+pluto-log-dot.Error {
+    background: #ffd5cb;
+    border: 3px solid rgb(239, 139, 139);
+}
+pluto-log-dot.Debug {
+    background: hsl(273deg 49% 94%);
+    border: 3px solid hsl(284deg 49% 79%);
+}
+
+pluto-log-dot jltree,
+pluto-log-dot jlpair {
+    font-size: 0.6rem;
+}
+pluto-log-dot > img {
+    max-width: 100px;
+}
+
+pluto-log-dot-kwarg {
+    display: flex;
+    flex-wrap: wrap;
+    flex-direction: row;
+}
+pluto-log-dot-kwarg > * {
+    flex: 0 0 auto;
+}
+pluto-log-dot-kwarg > pluto-key {
+    color: hsl(0, 0%, 40%);
+    margin-right: calc(1em - 30px);
+}
+pluto-log-dot-kwarg > pluto-key::after {
+    content: ": ";
+}
+pluto-log-dot-kwarg > pluto-value {
+    margin-left: 30px;
+}
 /* PRESENTATION MODE */
 
 body.presentation pluto-output h1,

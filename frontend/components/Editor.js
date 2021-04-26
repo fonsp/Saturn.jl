@@ -124,6 +124,17 @@ const first_true_key = (obj) => {
  */
 
 /**
+ * @typedef LogEntryData
+ * @type {{
+ *   level: number,
+ *   msg: string,
+ *   file: string,
+ *   line: number,
+ *   kwargs: Object,
+ * }}
+ */
+
+/**
  * @typedef CellResultData
  * @type {{
  *  cell_id: string,
@@ -137,7 +148,8 @@ const first_true_key = (obj) => {
  *      last_run_timestamp: number,
  *      mime: string,
  *      rootassignee: ?string,
- *  }
+ *  },
+ *  logs: Array<LogEntryData>,
  * }}
  */
 
@@ -611,9 +623,6 @@ patch: ${JSON.stringify(
                         } else if (message.patches.length !== 0) {
                             apply_notebook_patches(message.patches)
                         }
-                        break
-                    case "log":
-                        handle_log(message, this.state.notebook.path)
                         break
                     default:
                         console.error("Received unknown update type!", update)

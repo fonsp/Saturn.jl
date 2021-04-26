@@ -1,5 +1,6 @@
 import { html, useState, useEffect, useLayoutEffect, useRef, useContext } from "../imports/Preact.js"
 import observablehq_for_myself from "../common/SetupCellEnvironment.js"
+import _ from "../imports/lodash.js"
 
 import { utf8index_to_ut16index } from "../common/UnicodeTools.js"
 import { map_cmd_to_ctrl_on_mac } from "../common/KeyboardShortcuts.js"
@@ -52,6 +53,7 @@ export const CellInput = ({
     on_update_doc_query,
     on_focus_neighbor,
     on_drag_drop_events,
+    on_line_heights,
     cell_id,
     notebook_id,
 }) => {
@@ -470,6 +472,20 @@ export const CellInput = ({
         document.fonts.ready.then(() => {
             cm.refresh()
         })
+
+        const lines_wrapper_dom_node = dom_node_ref.current.querySelector("div.CodeMirror-code")
+        const lines_wrapper_resize_observer = new ResizeObserver(() => {
+            const line_nodes = lines_wrapper_dom_node.children
+            const tops = _.map(line_nodes, (c) => c.offsetTop)
+            const diffs = tops.slice(1).map((y, i) => y - tops[i])
+            const heights = [...diffs, 15]
+            on_line_heights(heights)
+        })
+
+        lines_wrapper_resize_observer.observe(lines_wrapper_dom_node)
+        return () => {
+            lines_wrapper_resize_observer.unobserve(lines_wrapper_dom_node)
+        }
     }, [])
 
     // useEffect(() => {

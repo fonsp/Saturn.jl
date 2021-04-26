@@ -9,7 +9,7 @@ import { PlutoContext } from "../common/PlutoContext.js"
 // whatever
 //
 // TODO: remove this, use OutputBody instead, and fix the CSS classes so that i all looks nice again
-const SimpleOutputBody = ({ mime, body, cell_id, persist_js_state }) => {
+export const SimpleOutputBody = ({ mime, body, cell_id, persist_js_state }) => {
     switch (mime) {
         case "image/png":
         case "image/jpg":

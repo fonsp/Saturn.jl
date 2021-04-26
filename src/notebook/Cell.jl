@@ -31,6 +31,8 @@ Base.@kwdef mutable struct Cell
     queued::Bool=false
     running::Bool=false
     
+    logs::Vector{Dict{String,Any}}=Vector{Dict{String,Any}}()
+    
     errored::Bool=false
     runtime::Union{Nothing,UInt64}=nothing
 

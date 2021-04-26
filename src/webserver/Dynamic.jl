@@ -132,6 +132,10 @@ function notebook_to_js(notebook::Notebook)
                 "running" => cell.running,
                 "errored" => cell.errored,
                 "runtime" => cell.runtime,
+                "logs" => Dict(
+                    string(i) => log
+                    for (i, log) in enumerate(cell.logs)
+                ),
             )
         for (id, cell) in notebook.cells_dict),
         "cell_order" => notebook.cell_order,

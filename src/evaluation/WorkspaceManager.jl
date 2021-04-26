@@ -1,5 +1,6 @@
 module WorkspaceManager
 import UUIDs: UUID
+import ..Pluto
 import ..Pluto: Configuration, Notebook, Cell, ProcessStatus, ServerSession, ExpressionExplorer, pluto_filename, Token, withtoken, Promise, tamepath, project_relative_path, putnotebookupdates!, UpdateMessage
 import ..Configuration: CompilerOptions, _merge_notebook_compiler_options, _resolve_notebook_project_path, _convert_to_flags
 import ..Pluto.ExpressionExplorer: FunctionName
@@ -74,8 +75,18 @@ end
 function start_relaying_logs((session, notebook)::SN, log_channel::Distributed.RemoteChannel)
     while true
         try
-            next_log = take!(log_channel)
-            putnotebookupdates!(session, notebook, UpdateMessage(:log, next_log, notebook))
+            next_log::Dict{String,Any} = take!(log_channel)
+
+            fn = next_log["file"]
+            match = findfirst("#==#", fn)
+            if match !== nothing
+                cell_id = UUID(fn[findfirst("#==#", fn)[end]+1:end])
+
+                cell = notebook.cells_dict[cell_id]
+                push!(cell.logs, next_log)
+                # putnotebookupdates!(session, notebook, UpdateMessage(:log, next_log, notebook))
+                Pluto.send_notebook_changes!(Pluto.ClientRequest(session=session, notebook=notebook))
+            end
         catch e
             if !isopen(log_channel)
                 break

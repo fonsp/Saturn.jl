@@ -74,6 +74,7 @@ function run_reactive!(session::ServerSession, notebook::Notebook, old_topology:
 		
 		cell.queued = false
 		cell.running = true
+		empty!(cell.logs)
 		send_notebook_changes_throttled()
 		
 		if any_interrupted || notebook.wants_to_interrupt
