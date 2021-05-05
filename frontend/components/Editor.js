@@ -14,6 +14,7 @@ import { SelectionArea } from "./SelectionArea.js"
 import { UndoDelete } from "./UndoDelete.js"
 import { SlideControls } from "./SlideControls.js"
 import { Scroller } from "./Scroller.js"
+import { FindReplace } from "./FindReplace.js"
 import { ExportBanner } from "./ExportBanner.js"
 
 import { slice_utf8, length_utf8 } from "../common/UnicodeTools.js"
@@ -231,10 +232,8 @@ export class Editor extends Component {
                 down: false,
             },
             export_menu_open: false,
-
             last_created_cell: null,
             selected_cells: [],
-
             update_is_ongoing: false,
         }
 
@@ -263,6 +262,7 @@ export class Editor extends Component {
                     window.dispatchEvent(
                         new CustomEvent("cell_focus", {
                             detail: {
+                                reason: "focus neighbor", // that's just documentation - page up/down!
                                 cell_id: this.state.notebook.cell_order[new_i],
                                 line: line,
                                 ch: ch,
@@ -1096,7 +1096,7 @@ patch: ${JSON.stringify(
         } />
                     <${FetchProgress} progress=${this.state.statefile_download_progress} />
                     <${Main}>
-                        <${Preamble} 
+                        <${Preamble}
                             last_update_time=${this.state.last_update_time}
                             any_code_differs=${status.code_differs}
                         />
@@ -1115,9 +1115,9 @@ patch: ${JSON.stringify(
                             }
                             disable_input=${!this.state.connected}
                         />
-                        <${DropRuler} 
+                        <${DropRuler}
                             actions=${this.actions}
-                            selected_cells=${this.state.selected_cells} 
+                            selected_cells=${this.state.selected_cells}
                             set_scroller=${(enabled) => {
                                 this.setState({ scroller: enabled })
                             }}
@@ -1146,6 +1146,7 @@ patch: ${JSON.stringify(
                             />`
                         }
                     </${Main}>
+                    <${FindReplace} />
                     <${LiveDocs}
                         desired_doc_query=${this.state.desired_doc_query}
                         on_update_doc_query=${this.actions.set_doc_query}

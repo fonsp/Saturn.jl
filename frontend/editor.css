@@ -417,6 +417,58 @@ body > header.show_export {
     transform: translateY(130px);
 }
 
+div#findreplace {
+    /*  margin: 10px; */
+    position: fixed;
+    top: 64px;
+    right: 8px;
+    z-index: 5;
+}
+
+aside#findreplace_container {
+    display: none;
+    flex-direction: row;
+    padding-right: 25px;
+}
+
+aside#findreplace_container.show_findreplace {
+    display: flex;
+    flex-flow: column nowrap;
+    padding: 4px;
+    box-shadow: 4px #00000010;
+}
+
+aside#findreplace_container > div {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    padding: 4px;
+    font-family: "Roboto Mono", monospace;
+    font-size: 0.75rem;
+    padding-right: 5px;
+}
+aside#findreplace_container > div > input {
+    border: 1px solid #818181;
+    font-family: inherit;
+    font-size: inherit;
+    border-radius: 3px 0 0 3px;
+    border-right: none;
+}
+aside#findreplace_container > div > button {
+    cursor: pointer;
+    background: #651b82 /*#896c6c*/;
+    border-radius: 0 3px 3px 0;
+    border: 1px solid #651b82 /*#896c6c*/;
+    color: white;
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.75rem;
+    margin-right: 2px;
+}
+aside#findreplace_container > div > input#value_input.findreplace_invalid_regex {
+  border: 2px red solid;
+}
+
 aside#export {
     position: absolute;
     top: 0;
@@ -1050,7 +1102,7 @@ pluto-trafficlight::after {
 /*
  * This class will toggle animation.
  * Other classes will make animation visible with opacity (which is CHEAP?)
- * 
+ *
  */
 pluto-cell.activate_animation pluto-trafficlight::after {
     animation: 10s linear 0s infinite running scrollbackground;

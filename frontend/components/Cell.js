@@ -34,16 +34,26 @@ export const Cell = ({
     is_process_ready,
     disable_input,
 }) => {
-    let pluto_actions = useContext(PlutoContext)
+    const pluto_actions = useContext(PlutoContext)
+    const [found_result, set_found_result] = useState(false)
     // cm_forced_focus is null, except when a line needs to be highlighted because it is part of a stack trace
     const [cm_forced_focus, set_cm_forced_focus] = useState(null)
     const { saving_file, drag_active, handler } = useDropHandler()
     useEffect(() => {
         const focusListener = (e) => {
             if (e.detail.cell_id === cell_id) {
+                if (e.detail.reason === "search/replace set highlight") {
+                    set_cm_forced_focus([e.detail.from, e.detail.to, { scroll: true, focus: false }])
+                    return
+                }
+                if (e.detail.reason === "search/replace unset highlight") {
+                    set_cm_forced_focus(null)
+                    return
+                }
                 if (e.detail.line != null) {
                     const ch = e.detail.ch
                     if (ch == null) {
+                        // arrow up/down
                         set_cm_forced_focus([{ line: e.detail.line, ch: 0 }, { line: e.detail.line, ch: Infinity }, { scroll: true }])
                     } else {
                         set_cm_forced_focus([{ line: e.detail.line, ch: ch }, { line: e.detail.line, ch: ch }, { scroll: true }])
@@ -71,7 +81,7 @@ export const Cell = ({
     const class_code_folded = code_folded && cm_forced_focus == null
 
     // during the initial page load, force_hide_input === true, so that cell outputs render fast, and codemirrors are loaded after
-    let show_input = !force_hide_input && (errored || class_code_differs || !class_code_folded)
+    let show_input = !force_hide_input && (errored || class_code_differs || !class_code_folded || found_result)
 
     const node_ref = useRef(null)
 
@@ -106,6 +116,8 @@ export const Cell = ({
                 show_input: show_input,
                 drop_target: drag_active,
                 saving_file: saving_file,
+                found_result: found_result,
+                show_input: show_input,
             })}
             id=${cell_id}
         >
@@ -169,6 +181,7 @@ export const Cell = ({
                 }}
                 on_update_doc_query=${on_update_doc_query}
                 on_focus_neighbor=${on_focus_neighbor}
+                set_found_result=${set_found_result}
                 cell_id=${cell_id}
                 notebook_id=${notebook_id}
             />

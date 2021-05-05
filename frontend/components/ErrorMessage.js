@@ -11,6 +11,7 @@ const StackFrameFilename = ({ frame, cell_id }) => {
                 window.dispatchEvent(
                     new CustomEvent("cell_focus", {
                         detail: {
+                            reason: "Go to Error Line", // Just docs
                             cell_id: frame_cell_id,
                             line: frame.line - 1, // 1-based to 0-based index
                         },

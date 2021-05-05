@@ -55,10 +55,11 @@ export const CellInput = ({
     on_update_doc_query,
     on_focus_neighbor,
     on_drag_drop_events,
+    set_found_result,
     cell_id,
     notebook_id,
 }) => {
-    let pluto_actions = useContext(PlutoContext)
+    const pluto_actions = useContext(PlutoContext)
 
     const cm_ref = useRef(null)
     const text_area_ref = useRef(null)
@@ -505,7 +506,7 @@ export const CellInput = ({
         } else {
             time_last_being_force_focussed_ref.current = Date.now()
             let cm_forced_focus_mapped = cm_forced_focus.map((x) => (x.line === Infinity ? { ...x, line: cm_ref.current.lastLine() } : x))
-            cm_ref.current.focus()
+            if (cm_forced_focus?.[2]?.focus !== false) cm_ref.current.focus()
             cm_ref.current.setSelection(...cm_forced_focus_mapped)
         }
     }, [cm_forced_focus])
