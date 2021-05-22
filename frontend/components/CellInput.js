@@ -7,7 +7,39 @@ import { PlutoContext } from "../common/PlutoContext.js"
 
 //@ts-ignore
 import { mac, chromeOS } from "https://cdn.jsdelivr.net/gh/codemirror/CodeMirror@5.60.0/src/util/browser.js"
+import {
+    EditorState,
+    EditorView,
+    Compartment,
+    EditorSelection,
+    basicSetup,
+    StreamLanguage,
+    julia,
+    keymap,
+    history,
+    historyKeymap,
+    defaultKeymap,
+    indentMore,
+    indentLess,
+} from "https://cdn.jsdelivr.net/gh/JuliaPluto/codemirror-pluto-setup@8697d451b4d1bb25bb0d772e857f8a3802cdc279/dist/index.es.min.js"
 
+// Compartments: https://codemirror.net/6/examples/config/
+let editable = new Compartment()
+
+const getValue6 = (cm) => cm.state.doc.toString()
+const setValue6 = (cm, value) =>
+    cm.dispatch({
+        changes: { from: 0, to: cm.state.doc.length, insert: value },
+    })
+const replaceRange6 = (cm, text, from, to) =>
+    cm.dispatch({
+        changes: { from, to, insert: text },
+    })
+const setSelection6 = (cm, anchor, head) => cm.dispatch({ selection: { anchor, head } })
+const setSelections6 = (cm, ranges) => cm.dispatch({ selection: EditorSelection.create(ranges) })
+const getSelections6 = (cm) => cm.state.selection.ranges.map((r) => cm.state.sliceDoc(r.from, r.to))
+const listSelections6 = (cm) => cm.state.selection.ranges
+const getCursor6 = (cm) => cm.state.selection.main.head
 // @ts-ignore
 const CodeMirror = window.CodeMirror
 
@@ -61,6 +93,7 @@ export const CellInput = ({
     let pluto_actions = useContext(PlutoContext)
 
     const cm_ref = useRef(null)
+    const newcm_ref = useRef(null)
     const text_area_ref = useRef(null)
     const dom_node_ref = useRef(/** @type {HTMLElement} */ (null))
     const remote_code_ref = useRef(null)
@@ -72,6 +105,7 @@ export const CellInput = ({
     const time_last_genuine_backspace = useRef(0)
 
     useEffect(() => {
+        /** Migration #1: Old */
         const current_value = cm_ref.current?.getValue() ?? ""
         if (remote_code_ref.current == null && remote_code === "" && current_value !== "") {
             // this cell is being initialized with empty code, but it already has local code set.
@@ -84,20 +118,36 @@ export const CellInput = ({
         }
     }, [remote_code])
 
+    useEffect(() => {
+        /** Migration #1: New */
+        const current_value = getValue6(newcm_ref.current) ?? ""
+        if (remote_code_ref.current == null && remote_code === "" && current_value !== "") {
+            // this cell is being initialized with empty code, but it already has local code set.
+            // this happens when pasting or dropping cells
+            return
+        }
+        remote_code_ref.current = remote_code
+        if (current_value !== remote_code) {
+            setValue6(newcm_ref.current, remote_code)
+        }
+    }, [remote_code])
+
     useLayoutEffect(() => {
+        /** Migration #0: OLD */
         const cm = (cm_ref.current = CodeMirror.fromTextArea(text_area_ref.current, {
-            value: local_code,
-            lineNumbers: true,
-            mode: "julia",
-            lineWrapping: true,
-            viewportMargin: Infinity,
+            value: local_code, // Migrated
+            lineNumbers: true, // TODO: Styles
+            mode: "julia", // Migrated
+            lineWrapping: true, // TODO
+            viewportMargin: Infinity, // TODO
             dragDrop: false /* Performance is too bad. 
             - Before: https://user-images.githubusercontent.com/6933510/116729854-fcdfd880-a9e7-11eb-9c88-f88f31ac352e.mov 
             - After: https://user-images.githubusercontent.com/6933510/116729764-d91c9280-a9e7-11eb-82df-d2f804630394.mov */,
-            placeholder: "Enter cell code...",
-            indentWithTabs: true,
-            indentUnit: 4,
+            placeholder: "Enter cell code...", // Migrated
+            indentWithTabs: true, // TODO
+            indentUnit: 4, // TODO
             hintOptions: {
+                // TODO
                 hint: juliahints,
                 pluto_actions: pluto_actions,
                 notebook_id: notebook_id,
@@ -111,7 +161,7 @@ export const CellInput = ({
                     // "(": (cm, { pick }) => pick(),
                 },
             },
-            matchBrackets: true,
+            matchBrackets: true, // Migrated
             configureMouse: (cm, repeat, event) => {
                 // modified version of https://github.com/codemirror/CodeMirror/blob/bd1b7d2976d768ae4e3b8cf209ec59ad73c0305a/src/edit/mouse_events.js#L116-L127
                 // because we want to change keys to match vs code
@@ -124,9 +174,138 @@ export const CellInput = ({
             },
         }))
 
-        const keys = {}
+        const keyMapSubmit = () => on_submit()
+        const keyMapRun = async () => {
+            // we await to prevent an out-of-sync issue
+            await on_add_after()
 
+            const new_value = newcm_ref.current?.state.doc.toString() ?? ""
+            if (new_value !== remote_code_ref.current) {
+                on_submit()
+            }
+        }
+        const keyMapTab =  // work todo
+            (shift) =>
+            (...args) => {
+                const cm = newcm_ref.current
+                const to = getCursor6(cm) // Do for whole selected line
+                const from = cm.state.doc.lineAt(getCursor6(cm)).from
+                const text = cm.state.sliceDoc(from, to)
+                const lastChar = cm.state.sliceDoc(to - 1, to)
+                console.table({ to, from, text })
+                if (text?.trim()?.length === 0) {
+                    ;(shift && indentLess(...args)) || indentMore(...args)
+                } else {
+                    if (shift && lastChar === `\t`) replaceRange6(cm, ``, to - 1, to)
+                    if (!shift) replaceRange6(cm, `${lastChar}\t`, to - 1, to)
+                }
+            }
+        const keyMapPageUp = () => on_focus_neighbor(cell_id, -1, 0, 0)
+        const keyMapPageDown = () => on_focus_neighbor(cell_id, +1, 0, 0)
+        const keyMapMD = () => {
+            // Migrated
+            const cm = newcm_ref.current
+            const value = getValue6(cm)
+            const trimmed = value.trim()
+            const offset = value.length - value.trimStart().length
+            console.table({ value, trimmed, offset })
+            if (trimmed.startsWith('md"') && trimmed.endsWith('"')) {
+                // Markdown cell, change to code
+                let start, end
+                if (trimmed.startsWith('md"""') && trimmed.endsWith('"""')) {
+                    // Block markdown
+                    start = 5
+                    end = trimmed.length - 3
+                } else {
+                    // Inline markdown
+                    start = 3
+                    end = trimmed.length - 1
+                }
+                if (start >= end || trimmed.substring(start, end).trim() == "") {
+                    // Corner case: block is empty after removing markdown
+                    setValue6(cm, "")
+                } else {
+                    while (/\s/.test(trimmed[start])) {
+                        ++start
+                    }
+                    while (/\s/.test(trimmed[end - 1])) {
+                        --end
+                    }
+                    // Keep the selection from [start, end) while maintaining cursor position
+                    replaceRange6(cm, "", end + offset, cm.state.doc.length)
+                    // cm.replaceRange("", cm.posFromIndex(end + offset), { line: cm.lineCount() })
+                    replaceRange6(cm, "", 0, start + offset)
+                    // cm.replaceRange("", { line: 0, ch: 0 }, cm.posFromIndex(start + offset))
+                }
+            } else {
+                // Replacing ranges will maintain both the focus, the selections and the cursor
+                replaceRange6(cm, `md"""\n`, 0, 0)
+                replaceRange6(cm, `\n"""`, cm.state.doc.length, cm.state.doc.length)
+            }
+        }
+        const keyMapD = () => {
+            const cm = newcm_ref.current
+        }
+        const keyMapDelete = () => {
+            const cm = newcm_ref.current
+            if (disable_input_ref.current) {
+                return
+            }
+            if (cm.state.doc.lines === 1 && getValue6(cm) === "") {
+                on_focus_neighbor(cell_id, +1)
+                on_delete()
+            }
+            return CodeMirror.Pass
+        }
+        const plutoKeyMaps = [
+            /** Migration #3: New code */ { key: "Shift-Enter", run: keyMapSubmit, preventDefault: true },
+            { key: "Ctrl-Enter", run: keyMapRun, preventDefault: true },
+            { key: "PageUp", run: keyMapPageUp, preventDefault: true },
+            { key: "PageDown", run: keyMapPageDown, preventDefault: true },
+            { key: "Tab", run: keyMapTab(false), shift: keyMapTab(true), preventDefault: true },
+            { key: "Ctrl-m", run: keyMapMD, preventDefault: true },
+            // Codemirror6 doesn't like capslock
+            { key: "Ctrl-M", run: keyMapMD, preventDefault: true },
+            { key: "Ctrl-d", run: keyMapD, preventDefault: true },
+            { key: "Ctrl-D", run: keyMapD, preventDefault: true },
+            { key: "Ctrl-D", run: keyMapD, preventDefault: true },
+            { key: "Delete", run: keyMapDelete, preventDefault: true },
+            { key: "Ctrl-Delete", run: keyMapDelete, preventDefault: true },
+        ]
+        const onCM6Update = (update) => {
+            if (update.docChanged) {
+                const cm = newcm_ref.current
+                const new_value = getValue6(cm)
+                console.log(new_value)
+                if (new_value.length > 1 && new_value[0] === "?") {
+                    console.log("yeap")
+                    window.dispatchEvent(new CustomEvent("open_live_docs"))
+                }
+                on_change_ref.current(new_value)
+            }
+        }
+        const newcm = (newcm_ref.current = new EditorView({
+            /** Migration #0: New */
+            state: EditorState.create({
+                doc: local_code,
+
+                extensions: [
+                    EditorState.tabSize.of(4),
+                    basicSetup,
+                    EditorView.updateListener.of(onCM6Update),
+                    editable.of(EditorView.editable.of(!disable_input_ref.current)),
+                    history(),
+                    keymap.of([...defaultKeymap, ...historyKeymap, ...plutoKeyMaps]),
+                    StreamLanguage.define(julia),
+                ],
+            }),
+            parent: dom_node_ref.current,
+        }))
+        /** Migration #3: Old code */
+        const keys = {}
+        // Migrated
         keys["Shift-Enter"] = () => on_submit()
+        // Migrated
         keys["Ctrl-Enter"] = async () => {
             // we await to prevent an out-of-sync issue
             await on_add_after()
@@ -137,16 +316,19 @@ export const CellInput = ({
             }
         }
         // Page up and page down are fn+Up and fn+Down on recent apple keyboards
+        //Migrated
         keys["PageUp"] = () => {
             on_focus_neighbor(cell_id, -1, 0, 0)
         }
+        //Migrated
         keys["PageDown"] = () => {
             on_focus_neighbor(cell_id, +1, 0, 0)
         }
-        keys["Shift-Tab"] = "indentLess"
-        keys["Tab"] = on_tab_key
-        keys["Ctrl-Space"] = () => cm.showHint()
+        keys["Shift-Tab"] = "indentLess" // TODO
+        keys["Tab"] = on_tab_key // TODO
+        keys["Ctrl-Space"] = () => cm.showHint() //TODO
         keys["Ctrl-D"] = () => {
+            // TODO
             if (cm.somethingSelected()) {
                 const sels = cm.getSelections()
                 if (all_equal(sels)) {
@@ -158,6 +340,8 @@ export const CellInput = ({
                 cm.setSelection({ line: cursor.line, ch: token.start }, { line: cursor.line, ch: token.end })
             }
         }
+
+        // Default config
         keys["Ctrl-/"] = () => {
             const old_value = cm.getValue()
             cm.toggleComment({ indent: true })
@@ -169,6 +353,8 @@ export const CellInput = ({
                 cm.execCommand("selectAll")
             }
         }
+
+        // Migrated
         keys["Ctrl-M"] = () => {
             const value = cm.getValue()
             const trimmed = value.trim()
@@ -251,9 +437,12 @@ export const CellInput = ({
                 )
             }
         }
+        //Default
         keys["Alt-Up"] = () => alt_move(-1)
+        // Default
         keys["Alt-Down"] = () => alt_move(+1)
 
+        // TODO
         keys["Backspace"] = keys["Ctrl-Backspace"] = () => {
             if (disable_input_ref.current) {
                 return
@@ -280,6 +469,7 @@ export const CellInput = ({
                 time_last_being_force_focussed_ref.current = Date.now()
             }
         }
+        // Mirgated
         keys["Delete"] = keys["Ctrl-Delete"] = () => {
             if (disable_input_ref.current) {
                 return
@@ -306,6 +496,7 @@ export const CellInput = ({
         const isapprox = (a, b) => Math.abs(a - b) < 3.0
         const at_first_line_visually = () => isapprox(cm.cursorCoords(null, "div").top, 0.0)
         keys["Up"] = with_time_since_last((elapsed) => {
+            // TODO
             if (elapsed > 300 && at_first_line_visually()) {
                 on_focus_neighbor(cell_id, -1, Infinity, Infinity)
                 // todo:
@@ -318,6 +509,7 @@ export const CellInput = ({
         })
         const at_first_position = () => cm.findPosH(cm.getCursor(), -1, "char")?.hitSide === true
         keys["Left"] = with_time_since_last((elapsed) => {
+            // TODO
             if (elapsed > 300 && at_first_position()) {
                 on_focus_neighbor(cell_id, -1, Infinity, Infinity)
             } else {
@@ -326,6 +518,7 @@ export const CellInput = ({
         })
         const at_last_line_visually = () => isapprox(cm.cursorCoords(null, "div").top, cm.cursorCoords({ line: Infinity, ch: Infinity }, "div").top)
         keys["Down"] = with_time_since_last((elapsed) => {
+            // TODO
             if (elapsed > 300 && at_last_line_visually()) {
                 on_focus_neighbor(cell_id, 1, 0, 0)
                 // todo:
@@ -337,6 +530,7 @@ export const CellInput = ({
         })
         const at_last_position = () => cm.findPosH(cm.getCursor(), 1, "char")?.hitSide === true
         keys["Right"] = with_time_since_last((elapsed) => {
+            // TODO
             if (elapsed > 300 && at_last_position()) {
                 on_focus_neighbor(cell_id, 1, 0, 0)
             } else {
@@ -344,6 +538,7 @@ export const CellInput = ({
             }
         })
         const open_close_selection = (opening_char, closing_char) => () => {
+            // Default
             if (cm.somethingSelected()) {
                 for (const selection of cm.getSelections()) {
                     cm.replaceSelection(`${opening_char}${selection}${closing_char}`, "around")
@@ -375,13 +570,15 @@ export const CellInput = ({
             }
             return true
         }
-
+        // TODO
         cm.on("dragover", (cm_, e) => {
             if (e.dataTransfer.types[0] !== "text/plain") {
                 on_drag_drop_events(e)
                 return true
             }
         })
+
+        // TODO
         cm.on("drop", (cm_, e) => {
             if (e.dataTransfer.types[0] !== "text/plain") {
                 on_drag_drop_events(e)
@@ -389,12 +586,16 @@ export const CellInput = ({
                 return true
             }
         })
+
+        // TODO
         cm.on("dragenter", (cm_, e) => {
             if (e.dataTransfer.types[0] !== "text/plain") {
                 on_drag_drop_events(e)
                 return true
             }
         })
+
+        // TODO
         cm.on("dragleave", (cm_, e) => {
             if (e.dataTransfer.types[0] !== "text/plain") {
                 on_drag_drop_events(e)
@@ -402,6 +603,7 @@ export const CellInput = ({
             }
         })
 
+        // TODO
         cm.on("cursorActivity", () => {
             setTimeout(() => {
                 if (!cm.hasFocus()) return
@@ -448,6 +650,7 @@ export const CellInput = ({
             }, 0)
         })
 
+        // Migrated (cm6 uses an observer) TODO Live docs
         cm.on("change", (_, e) => {
             const new_value = cm.getValue()
             if (new_value.length > 1 && new_value[0] === "?") {
@@ -456,6 +659,7 @@ export const CellInput = ({
             on_change_ref.current(new_value)
         })
 
+        //TODO
         cm.on("blur", () => {
             // NOT a debounce:
             setTimeout(() => {
@@ -466,6 +670,7 @@ export const CellInput = ({
             }, 100)
         })
 
+        //TODO
         cm.on("paste", (cm, e) => {
             const topaste = e.clipboardData.getData("text/plain")
             if (topaste.match(/# ╔═╡ ........-....-....-....-............/g)?.length) {
@@ -477,6 +682,7 @@ export const CellInput = ({
             e.stopPropagation()
         })
 
+        //TODO
         cm.on("mousedown", (cm, e) => {
             const notebook = pluto_actions.get_notebook()
             const mycell = notebook?.cell_dependencies?.[cell_id]
@@ -501,6 +707,7 @@ export const CellInput = ({
         if (focus_after_creation) {
             // TODO Smooth scroll into view?
             cm.focus()
+            newcm_ref.current.focus()
         }
 
         // @ts-ignore
@@ -518,6 +725,9 @@ export const CellInput = ({
     useEffect(() => {
         disable_input_ref.current = disable_input
         cm_ref.current.options.disableInput = disable_input
+        newcm_ref.current.dispatch({
+            effects: editable.reconfigure(EditorView.editable.of(!disable_input)),
+        })
     }, [disable_input])
 
     useEffect(() => {
@@ -532,6 +742,7 @@ export const CellInput = ({
     }, [cm_forced_focus])
 
     // fix a visual glitch where the input is only 5px high after unfolding the cell
+    // Mirgration: Not needed?
     useEffect(() => {
         if (show_input) {
             cm_ref.current.refresh()
@@ -550,6 +761,7 @@ export const CellInput = ({
 
 const no_autocomplete = " \t\r\n([])+-=/,;'\"!#$%^&*~`<>|"
 
+// TODO
 const on_tab_key = (cm) => {
     const cursor = cm.getCursor()
     const old_line = cm.getLine(cursor.line)
@@ -565,6 +777,7 @@ const on_tab_key = (cm) => {
     }
 }
 
+// TODO
 const juliahints = (cm, options) => {
     const cursor = cm.getCursor()
     const old_line = cm.getLine(cursor.line)
