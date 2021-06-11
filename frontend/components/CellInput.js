@@ -219,6 +219,39 @@ export const CellInput = ({
                 cm.setSelections(new_selections)
             }
         }
+            function duplicate_up_down(duplicate_up) {
+                // based on https://stackoverflow.com/a/53865581/633083
+                var current_cursor = cm.doc.getCursor();
+                cm.execCommand("goLineEnd")
+                cm.execCommand("goLineStart");
+                var start_cursor = cm.doc.getCursor();
+                var start = {'line': start_cursor.line, 'ch': start_cursor.ch};
+                cm.execCommand("goLineEnd")
+                var end_cursor = cm.doc.getCursor();
+                var end = {'line': end_cursor.line, 'ch': end_cursor.ch};
+                var line_content = cm.doc.getRange(start, end);
+                if (duplicate_up) {
+                    cm.doc.setCursor(current_cursor.line, current_cursor.ch);
+                    cm.execCommand("goLineStart");
+                    cm.execCommand("newLineAndIndent")
+                    cm.doc.replaceSelection(line_content);
+                    cm.doc.replaceSelection("\n");
+                    cm.doc.setCursor(current_cursor.line, current_cursor.ch);
+                } else {
+                    cm.doc.setCursor(current_cursor.line, current_cursor.ch);
+                    cm.execCommand("goLineEnd");
+                    cm.execCommand("newLineAndIndent")
+                    cm.doc.replaceSelection("\n");
+                    cm.doc.replaceSelection(line_content);
+                    cm.doc.setCursor(current_cursor.line + 1, current_cursor.ch);
+                }
+            }
+            keys["Shift-Alt-Up"] = () => {
+                duplicate_up_down(true);
+            }
+            keys["Shift-Alt-Down"] = () => {
+                duplicate_up_down(false);
+            }
         const swap = (a, i, j) => {
             ;[a[i], a[j]] = [a[j], a[i]]
         }
