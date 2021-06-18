@@ -7,7 +7,7 @@ const logger = {
     warn: DEBUG ? console.warn : noop,
     info: DEBUG ? console.info : noop,
 }
-var CACHE_NAME = "pluto-cache-v2"
+var CACHE_NAME = "pluto-cache-v3"
 
 self.addEventListener("install", (event) => {
     logger.log("Hello from service worker 👋")
@@ -43,9 +43,11 @@ self.addEventListener("fetch", (event) => {
                 } else {
                     logger.warn("Cache miss", event.request.url)
 
-                    return fetch(event.request).then(function (response) {
+                    const response_ok = (r) => r != null && r.status === 200
+
+                    const handle_response = (response) => {
                         // Check if we received a valid response
-                        if (!response || response.status !== 200) {
+                        if (!response_ok(response)) {
                             return response
                         } else {
                             logger.warn("FETCHED")
@@ -59,7 +61,23 @@ self.addEventListener("fetch", (event) => {
 
                             return response
                         }
-                    })
+                    }
+
+                    const proxy_url = new URL("./proxied_lib/" + encodeURIComponent(encodeURIComponent(event.request.url)), location).href
+
+                    logger.info("Proxy url", proxy_url)
+                    return fetch(proxy_url)
+                        .then((r) => {
+                            if (response_ok(r)) {
+                                return handle_response(new Response(r.body, r))
+                            } else {
+                                throw new Error("Failed to proxy through Pluto")
+                            }
+                        })
+                        .catch((e) => {
+                            logger.warn(e)
+                            return fetch(event.request).then(handle_response)
+                        })
                 }
             })
         )
