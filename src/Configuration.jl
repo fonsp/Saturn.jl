@@ -19,6 +19,25 @@ function notebook_path_suggestion()
     return joinpath(preferred_dir, "") # so that it ends with / or \
 end
 
+function default_browser()::Function
+    function construct_cmd(url::AbstractString)::Union{Nothing, Cmd}
+        try
+            if Sys.isapple()
+                return `open $url`
+            elseif Sys.iswindows() || detectwsl()
+                return `powershell.exe Start "'$url'"`
+            elseif Sys.islinux()
+                return `xdg-open $url`
+            else
+                return nothing
+            end
+        catch ex
+            return nothing
+        end
+    end
+    return construct_cmd
+end
+
 """
     ServerOptions([; kwargs...])
 
@@ -30,6 +49,7 @@ The HTTP server options. See [`SecurityOptions`](@ref) for additional settings.
 - `host::String = "127.0.0.1"`
 - `port::Union{Nothing,Integer} = nothing`
 - `launch_browser::Bool = true`
+- `on_url::Function = default_browser()`
 - `dismiss_update_notification::Bool = false`
 - `show_file_system::Bool = true`
 - `notebook_path_suggestion::String = notebook_path_suggestion()`
@@ -42,6 +62,7 @@ The HTTP server options. See [`SecurityOptions`](@ref) for additional settings.
     host::String = "127.0.0.1"
     port::Union{Nothing,Integer} = nothing
     launch_browser::Bool = true
+    on_url::Function = default_browser()
     dismiss_update_notification::Bool = false
     show_file_system::Bool = true
     notebook_path_suggestion::String = notebook_path_suggestion()

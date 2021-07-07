@@ -19,25 +19,6 @@ function detectwsl()
     occursin(r"Microsoft|WSL"i, read("/proc/sys/kernel/osrelease", String))
 end
 
-function open_in_default_browser(url::AbstractString)::Bool
-    try
-        if Sys.isapple()
-            Base.run(`open $url`)
-            true
-        elseif Sys.iswindows() || detectwsl()
-            Base.run(`powershell.exe Start "'$url'"`)
-            true
-        elseif Sys.islinux()
-            Base.run(`xdg-open $url`)
-            true
-        else
-            false
-        end
-    catch ex
-        false
-    end
-end
-
 isurl(s::String) = startswith(s, "http://") || startswith(s, "https://")
 
 swallow_exception(f, exception_type::Type{T}) where T =
@@ -230,8 +211,10 @@ function run(session::ServerSession)
     address = pretty_address(session, hostIP, port)
 
     println()
-    if session.options.server.launch_browser && open_in_default_browser(address)
-        println("Opening $address in your default browser... ~ have fun!")
+    browser_cmd = session.options.server.on_url(address)
+    if session.options.server.launch_browser & !(browser_cmd === nothing)
+        Base.run(browser_cmd)
+        println("Opening $address in your browser... ~ have fun!")
     else
         println("Go to $address in your browser to start writing ~ have fun!")
     end
