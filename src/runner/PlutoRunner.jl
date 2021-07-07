@@ -934,6 +934,12 @@ end
 # This is similar to how Requires.jl works, except we don't use a callback, we just check every time.
 const integrations = Integration[
     Integration(
+        id = Base.PkgId(UUID("0c5d862f-8b57-4792-8d23-62f2024744c7"), "Symbolics"),
+        code = quote
+            pluto_showable(::MIME"application/vnd.pluto.tree+object", ::Symbolics.Arr) = false
+        end,
+    ),
+    Integration(
         id = Base.PkgId(UUID("bd369af6-aec1-5ad0-b16a-f7cc5008161c"), "Tables"),
         code = quote
             function maptruncated(f::Function, xs, filler, limit; truncate=true)
