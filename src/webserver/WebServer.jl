@@ -209,6 +209,11 @@ function run(session::ServerSession)
 
             request_body = IOBuffer(HTTP.payload(request))
             response_body = HTTP.handle(pluto_router, request)
+            if eof(request_body)
+                # no request body
+            else
+                # @warn "HTTP request contains a body, huh?" request_body
+            end
     
             request.response::HTTP.Response = response_body
             request.response.request = request

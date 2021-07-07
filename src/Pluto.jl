@@ -12,6 +12,7 @@ module Pluto
 project_relative_path(xs...) = normpath(joinpath(dirname(dirname(pathof(Pluto))), xs...))
 
 import Pkg
+export PlutoNotebook, @resolve
 
 include_dependency("../Project.toml")
 const PLUTO_VERSION = VersionNumber(Pkg.TOML.parsefile(project_relative_path("Project.toml"))["version"])
@@ -54,6 +55,7 @@ include("./webserver/Static.jl")
 include("./webserver/Dynamic.jl")
 include("./webserver/REPLTools.jl")
 include("./webserver/WebServer.jl")
+include("./rest/REST.jl")
 
 const reset_notebook_environment = PkgUtils.reset_notebook_environment
 const update_notebook_environment = PkgUtils.update_notebook_environment

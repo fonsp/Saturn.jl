@@ -5,7 +5,7 @@ import .ExpressionExplorer: FunctionNameSignaturePair, is_joined_funcname, Using
 Base.push!(x::Set{Cell}) = x
 
 "Run given cells and all the cells that depend on them, based on the topology information before and after the changes."
-function run_reactive!(session::ServerSession, notebook::Notebook, old_topology::NotebookTopology, new_topology::NotebookTopology, roots::Vector{Cell}; deletion_hook::Function=WorkspaceManager.delete_vars, persist_js_state::Bool=false)::TopologicalOrder
+function run_reactive!(session::ServerSession, notebook::Notebook, old_topology::NotebookTopology, new_topology::NotebookTopology, roots::Vector{Cell}; deletion_hook::Function=WorkspaceManager.delete_vars, persist_js_state::Bool=false, dependency_mod::Union{Vector{Cell}, Nothing}=nothing)::TopologicalOrder
 	# make sure that we're the only `run_reactive!` being executed - like a semaphor
 	take!(notebook.executetoken)
 
@@ -43,8 +43,13 @@ function run_reactive!(session::ServerSession, notebook::Notebook, old_topology:
 		cell.queued = false
 		cell.depends_on_disabled_cells = true
 	end
-
     to_run = setdiff(to_run_raw, indirectly_deactivated)
+
+	# custom dependency to_run modification through a set intersection
+	#   can "trim" down the amount of code execution necessary in cases such as treating notebooks as functions
+	if !isnothing(dependency_mod)
+		to_run = intersect(to_run, dependency_mod)
+	end
 
 	# change the bar on the sides of cells to "queued"
 	for cell in to_run

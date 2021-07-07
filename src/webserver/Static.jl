@@ -1,6 +1,9 @@
 import HTTP
 import Markdown: htmlesc
 import UUIDs: UUID
+import JSON
+import Distributed: RemoteException
+import Serialization
 
 # Serve everything from `/frontend`, and create HTTP endpoints to open notebooks.
 
@@ -47,6 +50,37 @@ function notebook_response(notebook; home_url="./", as_redirect=true)
     else
         HTTP.Response(200, string(notebook.notebook_id))
     end
+end
+
+function get_header(request::HTTP.Request, key::AbstractString)
+    validx = findfirst(x -> (lowercase(x.first) == lowercase(key)), request.headers)
+    if isnothing(validx)
+        return nothing
+    end
+
+    val = request.headers[validx]
+    if !isnothing(val)
+        return val.second
+    end
+
+    nothing
+end
+
+function with_json!(response::HTTP.Response)
+    push!(response.headers, "Content-Type" => "application/json")
+    response
+end
+function with_msgpack!(response::HTTP.Response)
+    push!(response.headers, "Content-Type" => "application/x-msgpack")
+    response
+end
+function with_julia!(response::HTTP.Response)
+    push!(response.headers, "Content-Type" => "application/x-julia")
+    response
+end
+function with_cors!(response::HTTP.Response)
+    push!(response.headers, "Access-Control-Allow-Origin" => "*")
+    response
 end
 
 """
@@ -199,6 +233,137 @@ function http_router_for(session::ServerSession)
     end
     HTTP.@register(router, "GET", "/sample/*", serve_sample)
     HTTP.@register(router, "POST", "/sample/*", serve_sample)
+
+
+
+
+    function get_notebook_from_api_request(request::HTTP.Request)
+        uri = HTTP.URI(request.target)
+        query = HTTP.queryparams(uri)
+        splitpath = HTTP.URIs.splitpath(request.target)
+
+        sess_id = get(query, "session", splitpath[3])
+        file = get(query, "file", HTTP.unescapeuri(splitpath[3]))
+
+        notebook = nothing
+        if !isnothing(file)
+            notebook_id = findfirst(session.notebooks) do nb
+                basename(nb.path) == file
+            end
+
+            if !isnothing(notebook_id)
+                notebook = session.notebooks[notebook_id]
+            end
+        else
+            uid = UUID(sess_id)
+            if uid ∈ keys(session.notebooks)
+                notebook = session.notebooks[uid]
+            end
+        end
+
+        notebook
+    end
+    function rest_parse(body::Vector{UInt8}, mime_type::Union{AbstractString, Nothing})
+        if mime_type == "application/x-msgpack"
+            return MsgPack.unpack(body)
+        elseif mime_type == "application/x-julia"
+            return Serialization.deserialize(IOBuffer(body))
+        else
+            # For some reason JSON.parse mutates body
+            # so we need to make a copy of it
+            jsonstr = String(copy(body))
+            return JSON.parse(jsonstr)
+        end
+    end
+    function rest_parameter(request::HTTP.Request, key::AbstractString, default=nothing)
+        uri = HTTP.URI(request.target)
+        query = HTTP.queryparams(uri)
+
+        content_type = get_header(request, "Content-Type")
+        if haskey(query, key)
+            return rest_parse(Vector{UInt8}(get(query, key, "")), content_type)
+        end
+
+        parsed_body = rest_parse(request.body, content_type)
+        get(parsed_body, key, default)
+    end
+    function rest_serialize(request::HTTP.Request, body)
+        accept_type = get_header(request, "Accept")
+        try
+            if accept_type == "application/x-msgpack"
+                return HTTP.Response(200, Pluto.pack(body)) |> with_msgpack! |> with_cors!
+            elseif accept_type == "application/x-julia"
+                out_io = IOBuffer()
+                Serialization.serialize(out_io, body)
+                serialized_msg = take!(out_io)
+                return HTTP.Response(200, serialized_msg) |> with_julia! |> with_cors!
+            else 
+                return HTTP.Response(200, JSON.json(body)) |> with_json! |> with_cors!
+            end
+        catch e
+            # Likely an error serializing the object
+            showerror(stderr, e)
+            return HTTP.Response(400, "Cannot serialize requested output. See server logs for details")
+        end
+    end
+
+    if session.options.server.enable_rest
+        function serve_notebook_eval(request::HTTP.Request)
+            out_symbols = Symbol.(rest_parameter(request, "outputs"))
+
+            # Get notebook from request parameters
+            notebook = get_notebook_from_api_request(request)
+
+            inputs = rest_parameter(request, "inputs")
+            outputs = nothing
+            try
+                outputs = REST.get_notebook_output(session, notebook, notebook.topology, Dict{Symbol, Any}(Symbol(k) => v for (k, v) ∈ inputs), out_symbols)
+            catch e
+                if isa(e, RemoteException) # Happens when Julia can't send an object (ex. a function)
+                    return HTTP.Response(400, "Distributed serialization error. Is the requested variable a function?")
+                else
+                    showerror(stdout, e) # TODO: This line is for debug. Remove later
+                    return HTTP.Response(400, e.msg)
+                end
+            end
+
+            rest_serialize(request, outputs)
+        end
+        HTTP.@register(router, "GET", "/$(REST.WYSIWYR_VERSION)/notebook/*/eval", serve_notebook_eval)
+        HTTP.@register(router, "POST", "/$(REST.WYSIWYR_VERSION)/notebook/*/eval", serve_notebook_eval)
+
+        function serve_notebook_call(request::HTTP.Request)
+            # Get notebook from request parameters
+            notebook = get_notebook_from_api_request(request)
+
+            fn_name = Symbol(rest_parameter(request, "function"))
+            args = rest_parameter(request, "args")
+            kwargs = rest_parameter(request, "kwargs")
+
+            fn_result = REST.get_notebook_call(session, notebook, fn_name, args, kwargs)
+
+            rest_serialize(request, fn_result)
+        end
+        HTTP.@register(router, "GET", "/$(REST.WYSIWYR_VERSION)/notebook/*/call", serve_notebook_call)
+        HTTP.@register(router, "POST", "/$(REST.WYSIWYR_VERSION)/notebook/*/call", serve_notebook_call)
+
+        function serve_notebook_static_fn(request::HTTP.Request)
+            uri = HTTP.URI(request.target)
+            query = HTTP.queryparams(uri)
+
+            out_symbols = Symbol.(split(query["outputs"], ","))
+
+            notebook = get_notebook_from_api_request(request)
+
+            input_symbols = Symbol.(split(query["inputs"], ","))
+            out_fn = REST.get_notebook_static_function(session, notebook, notebook.topology, input_symbols, out_symbols)
+
+            res = HTTP.Response(200, string(out_fn))
+            push!(res.headers, "Content-Type" => "text/plain; charset=utf-8")
+            res
+        end
+        HTTP.@register(router, "GET", "/$(REST.WYSIWYR_VERSION)/notebook/*/static", serve_notebook_static_fn)
+    end
 
     notebook_from_uri(request) = let
         uri = HTTP.URI(request.target)        

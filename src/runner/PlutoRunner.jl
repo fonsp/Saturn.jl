@@ -22,6 +22,7 @@ import Dates: DateTime
 import Logging
 
 export @bind
+export PlutoNotebook
 
 MimedOutput = Tuple{Union{String,Vector{UInt8},Dict{Symbol,Any}},MIME}
 const ObjectID = typeof(objectid("hello computer"))
@@ -1281,6 +1282,13 @@ end"""
 
 
 
+
+
+###
+# REST (move elsewhere?)
+###
+
+include("../rest/RESTClient.jl")
 
 
 
