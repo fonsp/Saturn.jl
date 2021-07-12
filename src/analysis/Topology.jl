@@ -1,4 +1,4 @@
-import .ExpressionExplorer: UsingsImports
+import .ExpressionExplorer: UsingsImports, SymbolsState
 
 "A container for the result of parsing the cell code, with some extra metadata."
 Base.@kwdef struct ExprAnalysisCache
@@ -29,9 +29,12 @@ end
 Base.@kwdef struct NotebookTopology
     nodes::DefaultDict{Cell,ReactiveNode} = DefaultDict{Cell,ReactiveNode}(ReactiveNode)
     codes::DefaultDict{Cell,ExprAnalysisCache}=DefaultDict{Cell,ExprAnalysisCache}(ExprAnalysisCache)
+
+    unresolved_cells::Dict{Cell,SymbolsState} = Dict{Cell,SymbolsState}()
 end
 
 
+is_resolved(topology::NotebookTopology) = isempty(topology.unresolved_cells)
 
 DefaultDict{K,V}(default::Union{Function,DataType}) where {K,V} = DefaultDict{K,V}(default, Dict{K,V}())
 

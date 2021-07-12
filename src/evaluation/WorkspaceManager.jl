@@ -124,6 +124,15 @@ function cd_workspace(workspace, path::AbstractString)
     end)
 end
 
+"Create a new empty workspace. Return the `(old, new)` workspace names as a tuple of `Symbol`s."
+function bump_workspace_module(session_notebook::SN)
+    workspace = get_workspace(session_notebook)
+    old_name = workspace.module_name
+    new_name = workspace.module_name = create_emptyworkspacemodule(workspace.pid)
+
+    old_name, new_name
+end
+
 function create_emptyworkspacemodule(pid::Integer)::Symbol
     Distributed.remotecall_eval(Main, pid, :(PlutoRunner.increment_current_module()))
 end
@@ -227,7 +236,7 @@ end
 "Evaluate expression inside the workspace - output is fetched and formatted, errors are caught and formatted. Returns formatted output and error flags.
 
 `expr` has to satisfy `ExpressionExplorer.is_toplevel_expr`."
-function eval_format_fetch_in_workspace(session_notebook::Union{SN,Workspace}, expr::Expr, cell_id::UUID, ends_with_semicolon::Bool=false, function_wrapped_info::Union{Nothing,Tuple}=nothing)::NamedTuple{(:output_formatted, :errored, :interrupted, :process_exited, :runtime, :published_objects),Tuple{PlutoRunner.MimedOutput,Bool,Bool,Bool,Union{UInt64,Nothing},Dict{String,Any}}}
+function eval_format_fetch_in_workspace(session_notebook::Union{SN,Workspace}, expr::Expr, cell_id::UUID, ends_with_semicolon::Bool=false, function_wrapped_info::Union{Nothing,Tuple}=nothing, contains_user_defined_macrocalls::Bool=false)::NamedTuple{(:output_formatted, :errored, :interrupted, :process_exited, :runtime, :published_objects),Tuple{PlutoRunner.MimedOutput,Bool,Bool,Bool,Union{UInt64,Nothing},Dict{String,Any}}}
     workspace = get_workspace(session_notebook)
 
     # if multiple notebooks run on the same process, then we need to `cd` between the different notebook paths
@@ -248,7 +257,8 @@ function eval_format_fetch_in_workspace(session_notebook::Union{SN,Workspace}, e
             getfield(Main, $(QuoteNode(workspace.module_name))), 
             $(QuoteNode(expr)), 
             $cell_id, 
-            $function_wrapped_info
+            $function_wrapped_info,
+            $contains_user_defined_macrocalls,
         )))
         put!(workspace.dowork_token)
         nothing
@@ -287,6 +297,21 @@ function format_fetch_in_workspace(session_notebook::Union{SN,Workspace}, cell_i
     end
 end
 
+function macroexpand_in_workspace(session_notebook::Union{SN,Workspace}, macrocall, cell_uuid, module_name = nothing)
+    workspace = get_workspace(session_notebook)
+    module_name = module_name === nothing ? workspace.module_name : module_name
+
+    expr = quote
+        PlutoRunner.try_macroexpand($(module_name), $(cell_uuid), $(macrocall |> QuoteNode))
+    end
+    try
+        result = Distributed.remotecall_eval(Main, workspace.pid, expr)
+        return result
+    catch e
+        return e
+    end
+end
+
 "Evaluate expression inside the workspace - output is returned. For internal use."
 function eval_fetch_in_workspace(session_notebook::Union{SN,Workspace}, expr)
     workspace = get_workspace(session_notebook)
@@ -294,17 +319,28 @@ function eval_fetch_in_workspace(session_notebook::Union{SN,Workspace}, expr)
     Distributed.remotecall_eval(Main, workspace.pid, :(Core.eval($(workspace.module_name), $(expr |> QuoteNode))))
 end
 
-"Fake deleting variables by moving to a new module without re-importing them."
-function delete_vars(session_notebook::Union{SN,Workspace}, to_delete::Set{Symbol}, funcs_to_delete::Set{Tuple{UUID,FunctionName}}, module_imports_to_move::Set{Expr}; kwargs...)
+function do_reimports(session_notebook::Union{SN,Workspace}, module_imports_to_move::Set{Expr})
     workspace = get_workspace(session_notebook)
-
-    old_workspace_name = workspace.module_name
-    new_workspace_name = create_emptyworkspacemodule(workspace.pid)
-
-    workspace.module_name = new_workspace_name
-
-    Distributed.remotecall_eval(Main, [workspace.pid], :(PlutoRunner.move_vars($(old_workspace_name |> QuoteNode), $(new_workspace_name |> QuoteNode), $to_delete, $funcs_to_delete, $module_imports_to_move)))
+    workspace_name = workspace.module_name
+    Distributed.remotecall_eval(Main, [workspace.pid], :(PlutoRunner.do_reimports($(workspace_name), $module_imports_to_move)))
 end
+
+"Move variables to a new module. A given set of variables to be 'deleted' will not be moved to the new module, making them unavailable. "
+function move_vars(session_notebook::Union{SN,Workspace}, old_workspace_name::Symbol, new_workspace_name::Union{Nothing,Symbol}, to_delete::Set{Symbol}, methods_to_delete::Set{Tuple{UUID,FunctionName}}, module_imports_to_move::Set{Expr}; kwargs...)
+    workspace = get_workspace(session_notebook)
+    new_workspace_name = something(new_workspace_name, workspace.module_name)
+    
+    Distributed.remotecall_eval(Main, [workspace.pid], :(PlutoRunner.move_vars($(old_workspace_name |> QuoteNode), $(new_workspace_name |> QuoteNode), $to_delete, $methods_to_delete, $module_imports_to_move)))
+end
+
+move_vars(session_notebook::Union{SN,Workspace}, to_delete::Set{Symbol}, methods_to_delete::Set{Tuple{UUID,FunctionName}}, module_imports_to_move::Set{Expr}; kwargs...) =
+move_vars(session_notebook, bump_workspace_module(session_notebook)..., to_delete, methods_to_delete, module_imports_to_move; kwargs...)
+
+# TODO: delete me
+@deprecate(
+    delete_vars(args...; kwargs...),
+    move_vars(args...; kwargs...)
+)
 
 function poll(query::Function, timeout::Real=Inf64, interval::Real=1/20)
     start = time()

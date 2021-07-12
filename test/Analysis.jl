@@ -1,5 +1,5 @@
 using Test
-import Pluto: Notebook, ServerSession, ClientSession, Cell, updated_topology, is_just_text
+import Pluto: Notebook, ServerSession, ClientSession, Cell, updated_topology, static_resolve_topology, is_just_text
 
 @testset "Analysis" begin
     notebook = Notebook([
@@ -35,10 +35,15 @@ import Pluto: Notebook, ServerSession, ClientSession, Cell, updated_topology, is
         Cell("""quote end"""),
         Cell("""quote x = 21 end"""),
         Cell("""quote \$(x = 22) end"""),
+        Cell("""asdf"23" """),
+        Cell("""@asdf("24") """),
+        Cell("""@x"""),
+        Cell("""@y z 26"""),
+        Cell("""f(g"27")"""),
     ])
 
     old = notebook.topology
-    new = notebook.topology = updated_topology(old, notebook, notebook.cells)
+    new = notebook.topology = updated_topology(old, notebook, notebook.cells) |> static_resolve_topology
 
     @testset "Only-text detection" begin
         @test is_just_text(new, notebook.cells[1])
@@ -64,5 +69,10 @@ import Pluto: Notebook, ServerSession, ClientSession, Cell, updated_topology, is
         @test !is_just_text(new, notebook.cells[20])
         @test !is_just_text(new, notebook.cells[21])
         @test !is_just_text(new, notebook.cells[22])
+        @test !is_just_text(new, notebook.cells[23])
+        @test !is_just_text(new, notebook.cells[24])
+        @test !is_just_text(new, notebook.cells[25])
+        @test !is_just_text(new, notebook.cells[26])
+        @test !is_just_text(new, notebook.cells[27])
     end
 end

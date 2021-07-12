@@ -298,7 +298,7 @@ function load_notebook(path::String; disable_writing_notebook_files::Bool=false)
 
     loaded = load_notebook_nobackup(path)
     # Analyze cells so that the initial save is in topological order
-    loaded.topology = updated_topology(loaded.topology, loaded, loaded.cells)
+    loaded.topology = updated_topology(loaded.topology, loaded, loaded.cells) |> static_resolve_topology
     update_dependency_cache!(loaded)
 
     disable_writing_notebook_files || save_notebook(loaded)

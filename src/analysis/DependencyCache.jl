@@ -28,12 +28,22 @@ function upstream_cells_map(cell::Cell, notebook::Notebook)::Dict{Symbol,Vector{
     )
 end
 
+"Checks whether or not the cell references user-defined macrocalls"
+function contains_user_defined_macrocalls(cell::Cell, notebook::Notebook)::Bool
+    calls = notebook.topology.nodes[cell].macrocalls
+    !isempty(calls) && any(notebook.cells) do other
+        !disjoint(notebook.topology.nodes[other].funcdefs_without_signatures, calls)
+    end
+end
+
 "Fills cell dependency information for display in the GUI"
 function update_dependency_cache!(cell::Cell, notebook::Notebook)
     cell.cell_dependencies = CellDependencies(
         downstream_cells_map(cell, notebook), 
         upstream_cells_map(cell, notebook), 
-        cell_precedence_heuristic(notebook.topology, cell))
+        cell_precedence_heuristic(notebook.topology, cell),
+        contains_user_defined_macrocalls(cell, notebook)
+    )
 end
 
 "Fills dependency information on notebook and cell level."

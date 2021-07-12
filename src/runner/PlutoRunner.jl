@@ -26,6 +26,7 @@ export @bind
 MimedOutput = Tuple{Union{String,Vector{UInt8},Dict{Symbol,Any}},MIME}
 const ObjectID = typeof(objectid("hello computer"))
 const ObjectDimPair = Tuple{ObjectID,Int64}
+ExpandedCallCells = Dict{UUID,Expr}()
 
 
 
@@ -71,6 +72,87 @@ function increment_current_module()::Symbol
     ))
 
     new_workspace_name
+end
+
+function wrap_dot(ref::GlobalRef)
+    complete_mod_name = fullname(ref.mod) |> wrap_dot
+    Expr(:(.), complete_mod_name, QuoteNode(ref.name))
+end
+function wrap_dot(name)
+    if length(name) == 1
+        name[1]
+    else
+        Expr(:(.), wrap_dot(name[1:end-1]), QuoteNode(name[end]))
+    end
+end
+
+"""
+Returns an Expr with no GlobalRef to `Main.workspaceXX` so that reactive updates will work.
+"""
+no_workspace_ref(other, _=nothing) = other
+no_workspace_ref(expr::Expr, mod_name=nothing) = Expr(expr.head, map(arg -> no_workspace_ref(arg, mod_name), expr.args)...)
+function no_workspace_ref(ref::GlobalRef, mod_name=nothing)
+    test_mod_name = nameof(ref.mod) |> string
+    if startswith(test_mod_name, "workspace") &&
+        (mod_name === nothing ||
+            startswith(string(ref.name), ".") ||  # workaround for https://github.com/fonsp/Pluto.jl/pull/1032#issuecomment-868819317
+            string(mod_name)[9:end] !== test_mod_name[9:end])
+        ref.name
+    else
+        ref
+    end
+end
+
+function sanitize_expr(symbol::Symbol)
+    symbol
+end
+
+function sanitize_expr(dt::Union{DataType,Enum})
+    Symbol(dt)
+end
+
+function sanitize_expr(ref::GlobalRef)
+    test_mod_name = nameof(ref.mod) |> string
+    if startswith(test_mod_name, "workspace")
+        ref.name
+    else
+        wrap_dot(ref)
+    end
+end
+
+function sanitize_expr(expr::Expr)
+    Expr(expr.head, sanitize_expr.(expr.args)...)
+end
+
+# a function as part of an Expr is most likely a closure
+# returned from a macro
+function sanitize_expr(func::Function)
+    mt = typeof(func).name.mt
+    GlobalRef(mt.module, mt.name) |> sanitize_expr
+end
+
+function sanitize_expr(union_all::UnionAll)
+    sanitize_expr(union_all.body)
+end
+
+# An instanciation of a struct as part of an Expr
+# will not de-serializable in the Pluto process, only send if it is a child of PlutoRunner, Base or Core
+function sanitize_expr(other)
+    typename = other |> typeof
+    typename |> parentmodule |> Symbol ∈ [:Core, :PlutoRunner, :Base] ?
+        other :
+        Symbol(typename)
+end
+
+function try_macroexpand(mod, cell_uuid, expr)
+    try
+        expanded_expr = macroexpand(mod, expr)
+        ExpandedCallCells[cell_uuid] = no_workspace_ref(expanded_expr)
+
+        return sanitize_expr(expanded_expr)
+    catch e
+        return e
+    end
 end
 
 
@@ -200,6 +282,15 @@ function run_inside_trycatch(m::Module, f::Union{Expr,Function}, return_proof::R
 end
 
 
+visit_expand(_, other) = other
+function visit_expand(current_module::Module, expr::Expr)
+    if expr.head == :macrocall
+        no_workspace_ref(macroexpand(current_module, expr), nameof(current_module))
+    else
+        Expr(expr.head, map(arg -> visit_expand(current_module, arg), expr.args)...)
+    end
+end
+
 """
 Run the given expression in the current workspace module. If the third argument is `nothing`, then the expression will be `Core.eval`ed. The result and runtime are stored inside [`cell_results`](@ref) and [`cell_runtimes`](@ref).
 
@@ -207,14 +298,28 @@ If the third argument is a `Tuple{Set{Symbol}, Set{Symbol}}` containing the refe
 
 This function is memoized: running the same expression a second time will simply call the same generated function again. This is much faster than evaluating the expression, because the function only needs to be Julia-compiled once. See https://github.com/fonsp/Pluto.jl/pull/720
 """
-function run_expression(m::Module, expr::Any, cell_id::UUID, function_wrapped_info::Union{Nothing,Tuple{Set{Symbol},Set{Symbol}}}=nothing)
+function run_expression(m::Module, expr::Any, cell_id::UUID, function_wrapped_info::Union{Nothing,Tuple{Set{Symbol},Set{Symbol}}}=nothing, contains_user_defined_macrocalls::Bool=false)
     currently_running_cell_id[] = cell_id
     cell_published_objects[cell_id] = Dict{String,Any}()
 
     result, runtime = if function_wrapped_info === nothing
+        expr = pop!(ExpandedCallCells, cell_id, expr)
         proof = ReturnProof()
-        wrapped = timed_expr(expr, proof)
-        run_inside_trycatch(m, wrapped, proof)
+
+        # Note: fix for https://github.com/fonsp/Pluto.jl/issues/1112
+        if contains_user_defined_macrocalls
+            try
+                expr = visit_expand(m, expr)
+                wrapped = timed_expr(expr, proof)
+                run_inside_trycatch(m, wrapped, proof)
+            catch ex
+                bt = stacktrace(catch_backtrace())
+                (CapturedException(ex, bt), nothing)
+            end
+        else
+            wrapped = timed_expr(expr, proof)
+            run_inside_trycatch(m, wrapped, proof)
+        end
     else
         key = expr_hash(expr)
         local computer = get(computers, key, nothing)
@@ -257,6 +362,14 @@ end
 ###
 
 
+function do_reimports(workspace_name, module_imports_to_move::Set{Expr})
+    for expr in module_imports_to_move
+        try
+            Core.eval(workspace_name, expr)
+        catch e end # TODO catch specificallly
+    end
+end
+
 """
 Move some of the globals over from one workspace to another. This is how Pluto "deletes" globals - it doesn't, it just executes your new code in a new module where those globals are not defined.
 
@@ -266,22 +379,18 @@ The trick boils down to two things:
 1. When we create a new workspace module, we move over some of the global from the old workspace. (But not the ones that we want to 'delete'!)
 2. If a function used to be defined, but now we want to delete it, then we go through the method table of that function and snoop out all methods that we defined by us, and not by another package. This is how we reverse extending external functions. For example, if you run a cell with `Base.sqrt(s::String) = "the square root of" * s`, and then delete that cell, then you can still call `sqrt(1)` but `sqrt("one")` will err. Cool right!
 """
-function move_vars(old_workspace_name::Symbol, new_workspace_name::Symbol, vars_to_delete::Set{Symbol}, funcs_to_delete::Set{Tuple{UUID,Vector{Symbol}}}, module_imports_to_move::Set{Expr})
+function move_vars(old_workspace_name::Symbol, new_workspace_name::Symbol, vars_to_delete::Set{Symbol}, methods_to_delete::Set{Tuple{UUID,Vector{Symbol}}}, module_imports_to_move::Set{Expr})
     old_workspace = getfield(Main, old_workspace_name)
     new_workspace = getfield(Main, new_workspace_name)
 
-    for expr in module_imports_to_move
-        try
-            Core.eval(new_workspace, expr)
-        catch; end # TODO catch specificallly
-    end
+    do_reimports(new_workspace, module_imports_to_move)
 
     # TODO: delete
     Core.eval(new_workspace, :(import ..($(old_workspace_name))))
 
     old_names = names(old_workspace, all=true, imported=true)
 
-    funcs_with_no_methods_left = filter(funcs_to_delete) do f
+    funcs_with_no_methods_left = filter(methods_to_delete) do f
         !try_delete_toplevel_methods(old_workspace, f)
     end
     name_symbols_of_funcs_with_no_methods_left = last.(last.(funcs_with_no_methods_left))
