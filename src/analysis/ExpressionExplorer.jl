@@ -140,8 +140,14 @@ end
 
 function get_assignees(ex::Expr)::FunctionName
     if ex.head == :tuple
-        # e.g. (x, y) in the ex (x, y) = (1, 23)
-        union!(Symbol[], get_assignees.(ex.args)...)
+        if first(ex.args) isa Expr
+            # e.g. (x, y) in the ex (; x, y) = (x = 5, y = 6, z = 7)
+            args = only(ex.args).args
+        else
+            # e.g. (x, y) in the ex (x, y) = (1, 23)
+            args = ex.args
+        end
+        union!(Symbol[], get_assignees.(args)...)
         # filter(s->s isa Symbol, ex.args)
     elseif ex.head == :(::)
         # TODO: type is referenced
