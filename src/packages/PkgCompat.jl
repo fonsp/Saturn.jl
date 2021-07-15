@@ -404,7 +404,7 @@ function write_auto_compat_entries(ctx::PkgContext)::PkgContext
 			if !haskey(compat, p)
 				m_version = get_manifest_version(ctx, p)
 				if m_version !== nothing && !is_stdlib(p)
-					compat[p] = "~" * string(m_version)
+					compat[p] = "~" * string(Base.thispatch(m_version))  # drop build number
 				end
 			end
 		end
